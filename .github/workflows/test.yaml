@@ -12,6 +12,13 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-pages
+  cancel-in-progress: false
+
 jobs:
   delivery:
     runs-on: ubuntu-latest
@@ -24,3 +31,120 @@ jobs:
         run: |
           echo "ClearCase view: ${{ inputs.view }}"
           echo "Description:: ${{ inputs.description }}"
+
+      - name: Generate random result
+        id: random
+        run: |
+          if (( RANDOM % 2 )); then
+            result=true
+          else
+            result=false
+          fi
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "Random result: $result"
+
+      - name: Generate HTML report
+        id: report
+        env:
+          VIEW: ${{ inputs.view }}
+          DESCRIPTION: ${{ inputs.description }}
+          RESULT: ${{ steps.random.outputs.result }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          file="run-${RUN_NUMBER}.html"
+          mkdir -p reports
+
+          if [ "$RESULT" = "true" ]; then
+            status_label="PASSED"; status_class="ok"
+          else
+            status_label="FAILED"; status_class="fail"
+          fi
+
+          # escape for safe HTML output
+          esc() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g' <<< "$1"; }
+
+          cat > "reports/$file" <<EOF
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>Run #${RUN_NUMBER} report</title>
+            <style>
+              body { font-family: sans-serif; max-width: 720px; margin: 2rem auto; }
+              table { border-collapse: collapse; width: 100%; }
+              td, th { border: 1px solid #ccc; padding: .5rem; text-align: left; }
+              .ok { color: #1a7f37; font-weight: bold; }
+              .fail { color: #cf222e; font-weight: bold; }
+            </style>
+          </head>
+          <body>
+            <h1>Run #${RUN_NUMBER}</h1>
+            <p class="${status_class}">${status_label}</p>
+            <table>
+              <tr><th>View</th><td>$(esc "$VIEW")</td></tr>
+              <tr><th>Description</th><td>$(esc "$DESCRIPTION")</td></tr>
+              <tr><th>Result</th><td>${RESULT}</td></tr>
+              <tr><th>Triggered by</th><td>$(esc "$ACTOR")</td></tr>
+              <tr><th>Date (UTC)</th><td>${timestamp}</td></tr>
+              <tr><th>Workflow run</th><td><a href="${RUN_URL}">${RUN_ID}</a></td></tr>
+            </table>
+            <p><a href="../index.html">Back to all reports</a></p>
+          </body>
+          </html>
+          EOF
+
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+          echo "timestamp=$timestamp" >> "$GITHUB_OUTPUT"
+          echo "Generated reports/$file"
+
+      - name: Checkout gh-pages
+        uses: actions/checkout@v7
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Copy report to gh-pages
+        env:
+          FILE: ${{ steps.report.outputs.file }}
+        run: |
+          mkdir -p gh-pages/reports
+          cp "reports/$FILE" "gh-pages/reports/$FILE"
+
+      - name: Add row to index.html and publish
+        env:
+          FILE: ${{ steps.report.outputs.file }}
+          TIMESTAMP: ${{ steps.report.outputs.timestamp }}
+          RUN_NUMBER: ${{ github.run_number }}
+          VIEW: ${{ inputs.view }}
+          DESCRIPTION: ${{ inputs.description }}
+          RESULT: ${{ steps.random.outputs.result }}
+        working-directory: gh-pages
+        run: |
+          esc() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g' <<< "$1"; }
+
+          if [ "$RESULT" = "true" ]; then
+            status='<span class="ok">PASSED</span>'
+          else
+            status='<span class="fail">FAILED</span>'
+          fi
+
+          row="<tr><td><a href=\"reports/${FILE}\">#${RUN_NUMBER}</a></td><td>${TIMESTAMP}</td><td>$(esc "$VIEW")</td><td>$(esc "$DESCRIPTION")</td><td>${status}</td></tr>"
+
+          if ! grep -q '<!-- REPORTS -->' index.html; then
+            echo "::error::Marker <!-- REPORTS --> not found in index.html"
+            exit 1
+          fi
+
+          # insert the new row right after the marker (newest first)
+          awk -v row="$row" '{ print } /<!-- REPORTS -->/ { print "    " row }' index.html > index.html.tmp
+          mv index.html.tmp index.html
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports/"$FILE" index.html
+          git commit -m "Add report for run #${RUN_NUMBER}"
+          git push
