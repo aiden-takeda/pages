@@ -5,10 +5,6 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: gh-pages
-  cancel-in-progress: false
-
 jobs:
   save-json:
     runs-on: ubuntu-latest
