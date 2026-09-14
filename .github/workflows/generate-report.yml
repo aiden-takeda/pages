@@ -1,16 +1,6 @@
-name: "Test pipeline"
-
+name: Generate Report
 on:
-  workflow_dispatch:
-    inputs:
-      view:
-        description: "View name"
-        required: true
-        type: string
-      description:
-        description: "Short description"
-        required: true
-        type: string
+  workflow_call:
 
 permissions:
   contents: write
@@ -20,35 +10,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  delivery:
+  generate-report:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout repo (template)
         uses: actions/checkout@v7
 
-      - name: Print inputs
-        run: |
-          echo "ClearCase view: ${{ inputs.view }}"
-          echo "Description:: ${{ inputs.description }}"
-
-      - name: Generate random result
-        id: random
-        run: |
-          if (( RANDOM % 2 )); then
-            result=true
-          else
-            result=false
-          fi
-          echo "result=$result" >> "$GITHUB_OUTPUT"
-          echo "Random result: $result"
+      - name: Download data.json
+        uses: actions/download-artifact@v4
+        with:
+          name: data
+          path: data # restores data/data.json
 
       - name: Generate HTML report
         id: report
         env:
-          VIEW: ${{ inputs.view }}
-          DESCRIPTION: ${{ inputs.description }}
-          RESULT: ${{ steps.random.outputs.result }}
+          DATA: data/data.json
           RUN_NUMBER: ${{ github.run_number }}
           RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -57,23 +35,37 @@ jobs:
         run: |
           esc() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g' <<< "$1"; }
 
+          VIEW=$(jq -r '.inputs.view // ""' "$DATA")
+          DESCRIPTION=$(jq -r '.inputs.description // ""' "$DATA")
+          UPDATE=$(jq -r '.work.update // ""' "$DATA")
+
+          if [ -n "$UPDATE" ] && [ "$UPDATE" != "no summary found" ]; then
+            RESULT=true
+            export STATUS_LABEL=PASSED STATUS_CLASS=ok
+          else
+            RESULT=false
+            export STATUS_LABEL=FAILED STATUS_CLASS=fail
+          fi
+
+          export RESULT RUN_NUMBER RUN_ID RUN_URL
           export TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           export VIEW_ESC=$(esc "$VIEW")
           export DESCRIPTION_ESC=$(esc "$DESCRIPTION")
+          export UPDATE_ESC=$(esc "$UPDATE")
           export ACTOR_ESC=$(esc "$ACTOR")
-
-          if [ "$RESULT" = "true" ]; then
-            export STATUS_LABEL=PASSED STATUS_CLASS=ok
-          else
-            export STATUS_LABEL=FAILED STATUS_CLASS=fail
-          fi
 
           file="run-${RUN_NUMBER}.html"
           mkdir -p reports
           envsubst < "$TEMPLATE" > "reports/$file"
 
-          echo "file=$file" >> "$GITHUB_OUTPUT"
-          echo "timestamp=$TIMESTAMP" >> "$GITHUB_OUTPUT"
+          {
+            echo "file=$file"
+            echo "timestamp=$TIMESTAMP"
+            echo "view=$VIEW"
+            echo "description=$DESCRIPTION"
+            echo "update=$UPDATE"
+            echo "result=$RESULT"
+          } >> "$GITHUB_OUTPUT"
           echo "Generated reports/$file from $TEMPLATE"
 
       - name: Checkout gh-pages
@@ -90,14 +82,15 @@ jobs:
           cp "reports/$FILE" "gh-pages/reports/$FILE"
 
       - name: Add row to index.html and publish
+        working-directory: gh-pages
         env:
           FILE: ${{ steps.report.outputs.file }}
           TIMESTAMP: ${{ steps.report.outputs.timestamp }}
+          VIEW: ${{ steps.report.outputs.view }}
+          DESCRIPTION: ${{ steps.report.outputs.description }}
+          UPDATE: ${{ steps.report.outputs.update }}
+          RESULT: ${{ steps.report.outputs.result }}
           RUN_NUMBER: ${{ github.run_number }}
-          VIEW: ${{ inputs.view }}
-          DESCRIPTION: ${{ inputs.description }}
-          RESULT: ${{ steps.random.outputs.result }}
-        working-directory: gh-pages
         run: |
           esc() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g' <<< "$1"; }
 
@@ -107,7 +100,7 @@ jobs:
             status='<span class="fail">FAILED</span>'
           fi
 
-          row="<tr><td><a href=\"reports/${FILE}\">#${RUN_NUMBER}</a></td><td>${TIMESTAMP}</td><td>$(esc "$VIEW")</td><td>$(esc "$DESCRIPTION")</td><td>${status}</td></tr>"
+          row="<tr><td><a href=\"reports/${FILE}\">#${RUN_NUMBER}</a></td><td>${TIMESTAMP}</td><td>$(esc "$VIEW")</td><td>$(esc "$DESCRIPTION")</td><td>$(esc "$UPDATE")</td><td>${status}</td></tr>"
 
           if ! grep -q '<!-- REPORTS -->' index.html; then
             echo "::error::Marker <!-- REPORTS --> not found in index.html"
@@ -115,7 +108,7 @@ jobs:
           fi
 
           # insert the new row right after the marker (newest first)
-          awk -v row="$row" '{ print } /<!-- REPORTS -->/ { print "    " row }' index.html > index.html.tmp
+          awk -v row="$row" '{ print } /<!-- REPORTS -->/ { print "      " row }' index.html > index.html.tmp
           mv index.html.tmp index.html
 
           git config user.name "github-actions[bot]"

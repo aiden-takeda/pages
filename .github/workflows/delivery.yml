@@ -1,0 +1,57 @@
+name: "Delivery pipeline"
+
+on:
+  workflow_dispatch:
+    inputs:
+      view:
+        description: "View name"
+        required: true
+        type: string
+      description:
+        description: "Short description"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-pages
+  cancel-in-progress: false
+
+jobs:
+  work:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Save inputs
+        env:
+          INPUTS: ${{ toJSON(inputs) }}
+        run: |
+          jq -n --argjson inputs "$INPUTS" '{inputs: $inputs, work: {}}' > data.json
+
+      - name: Update distro
+        run: sudo apt-get update && sudo apt-get upgrade -y 2>&1 | tee upgrade.log
+
+      - name: Record update result
+        if: always()
+        run: |
+          INFO=$(grep -E '^[0-9]+ upgraded' upgrade.log | tail -n1 || echo "no summary found")
+          mkdir -p data
+          jq --arg info "$INFO" '.work.update = $info' data.json > tmp.json
+          mv tmp.json data/data.json
+
+      - name: Upload data.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: data
+          path: data/data.json
+
+  save-json:
+    needs: work
+    uses: ./.github/workflows/save-data.yml
+
+  generate-report:
+    needs: save-json
+    uses: ./.github/workflows/generate-report.yml
