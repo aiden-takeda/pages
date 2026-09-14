@@ -53,53 +53,28 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ACTOR: ${{ github.actor }}
+          TEMPLATE: .github/templates/report.html
         run: |
-          timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          file="run-${RUN_NUMBER}.html"
-          mkdir -p reports
-
-          if [ "$RESULT" = "true" ]; then
-            status_label="PASSED"; status_class="ok"
-          else
-            status_label="FAILED"; status_class="fail"
-          fi
-
-          # escape for safe HTML output
           esc() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g' <<< "$1"; }
 
-          cat > "reports/$file" <<EOF
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-            <meta charset="utf-8">
-            <title>Run #${RUN_NUMBER} report</title>
-            <style>
-              body { font-family: sans-serif; max-width: 720px; margin: 2rem auto; }
-              table { border-collapse: collapse; width: 100%; }
-              td, th { border: 1px solid #ccc; padding: .5rem; text-align: left; }
-              .ok { color: #1a7f37; font-weight: bold; }
-              .fail { color: #cf222e; font-weight: bold; }
-            </style>
-          </head>
-          <body>
-            <h1>Run #${RUN_NUMBER}</h1>
-            <p class="${status_class}">${status_label}</p>
-            <table>
-              <tr><th>View</th><td>$(esc "$VIEW")</td></tr>
-              <tr><th>Description</th><td>$(esc "$DESCRIPTION")</td></tr>
-              <tr><th>Result</th><td>${RESULT}</td></tr>
-              <tr><th>Triggered by</th><td>$(esc "$ACTOR")</td></tr>
-              <tr><th>Date (UTC)</th><td>${timestamp}</td></tr>
-              <tr><th>Workflow run</th><td><a href="${RUN_URL}">${RUN_ID}</a></td></tr>
-            </table>
-            <p><a href="../index.html">Back to all reports</a></p>
-          </body>
-          </html>
-          EOF
+          export TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          export VIEW_ESC=$(esc "$VIEW")
+          export DESCRIPTION_ESC=$(esc "$DESCRIPTION")
+          export ACTOR_ESC=$(esc "$ACTOR")
+
+          if [ "$RESULT" = "true" ]; then
+            export STATUS_LABEL=PASSED STATUS_CLASS=ok
+          else
+            export STATUS_LABEL=FAILED STATUS_CLASS=fail
+          fi
+
+          file="run-${RUN_NUMBER}.html"
+          mkdir -p reports
+          envsubst < "$TEMPLATE" > "reports/$file"
 
           echo "file=$file" >> "$GITHUB_OUTPUT"
-          echo "timestamp=$timestamp" >> "$GITHUB_OUTPUT"
-          echo "Generated reports/$file"
+          echo "timestamp=$TIMESTAMP" >> "$GITHUB_OUTPUT"
+          echo "Generated reports/$file from $TEMPLATE"
 
       - name: Checkout gh-pages
         uses: actions/checkout@v7
