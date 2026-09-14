@@ -2,6 +2,36 @@ name: "Test pipeline"
 
 on:
   workflow_dispatch:
+    inputs:
+      clearcase-view:
+        description: "ClearCase view with the changes to deliver"
+        required: true
+        type: string
+      description:
+        description: "Short description ot the changes"
+        required: true
+        type: string
+      pdf-developer:
+        description: "Developer in the PDF"
+        required: true
+        type: string
+      pdf-project-leader:
+        description: "Project Leader in the PDF"
+        required: true
+        type: string
+      pdf-group-leader:
+        description: "Group Leader in the PDF"
+        required: true
+        type: string
+      pdf-patch:
+        description: "Unique name for the PDF patch"
+        required: true
+        type: string
+      test-arena:
+        description: "Whether to run Test Arena as part of the workflow"
+        required: true
+        type: boolean
+        default: true
 
 jobs:
   delivery:
@@ -10,3 +40,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+
+      - name: Print inputs
+        run: |
+          echo "ClearCase view: ${{ inputs.clearcase-view }}"
+          echo "Description:: ${{ inputs.description }}"
