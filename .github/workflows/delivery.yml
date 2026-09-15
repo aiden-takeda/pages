@@ -48,10 +48,5 @@ jobs:
           name: data
           path: data/data.json
 
-  save-json:
-    needs: work
-    uses: ./.github/workflows/save-data.yml
-
   generate-report:
-    needs: save-json
     uses: ./.github/workflows/generate-report.yml
