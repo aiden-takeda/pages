@@ -1,9 +1,9 @@
 {
   "inputs": {
-    "view": "Test 7",
-    "description": "fix some problems in workflows"
+    "view": "Test 8",
+    "description": "struct workflow"
   },
   "work": {
-    "update": "50 upgraded, 0 newly installed, 0 to remove and 0 not upgraded."
+    "update": "61 upgraded, 0 newly installed, 0 to remove and 0 not upgraded."
   }
 }
