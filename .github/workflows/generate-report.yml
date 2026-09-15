@@ -1,6 +1,11 @@
 name: Generate Report
 on:
   workflow_call:
+    inputs:
+      result:
+        type: string
+        required: false
+        default: "success"
 
 permissions:
   contents: write
@@ -54,6 +59,7 @@ jobs:
       - name: Generate HTML report
         id: report
         env:
+          WORK_RESULT: ${{ inputs.result }}
           DATA: data/data.json
           RUN_NUMBER: ${{ github.run_number }}
           RUN_ID: ${{ github.run_id }}
@@ -67,7 +73,7 @@ jobs:
           DESCRIPTION=$(jq -r '.inputs.description // ""' "$DATA")
           UPDATE=$(jq -r '.work.update // ""' "$DATA")
 
-          if [ -n "$UPDATE" ] && [ "$UPDATE" != "no summary found" ]; then
+          if [ "$WORK_RESULT" = "success" ]; then
             RESULT=true
             export STATUS_LABEL=PASSED STATUS_CLASS=ok
           else

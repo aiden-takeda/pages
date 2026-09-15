@@ -34,19 +34,24 @@ jobs:
         run: sudo apt-get update && sudo apt-get upgrade -y 2>&1 | tee upgrade.log
 
       - name: Record update result
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
-          INFO=$(grep -E '^[0-9]+ upgraded' upgrade.log | tail -n1 || echo "no summary found")
+          [ -f data.json ] || echo '{"inputs": {}, "work": {}}' > data.json
+          INFO=$(grep -sE '^[0-9]+ upgraded' upgrade.log | tail -n1)
+          : "${INFO:=no summary found}"
           mkdir -p data
-          jq --arg info "$INFO" '.work.update = $info' data.json > tmp.json
-          mv tmp.json data/data.json
+          jq --arg info "$INFO" '.work.update = $info' data.json > data/data.json
 
       - name: Upload data.json
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: data
           path: data/data.json
 
   generate-report:
+    needs: work
+    if: ${{ !cancelled() }}
     uses: ./.github/workflows/generate-report.yml
+    with:
+      result: ${{ needs.work.result }}
